@@ -254,6 +254,9 @@ char *lo_address_get_url(lo_address a)
     if (!a->host)
         lo_address_resolve_source(a);
 
+    if (!a->host)
+		return NULL;
+
     needquote = strchr(a->host, ':') ? 1 : 0;
 
     if (needquote) {
@@ -323,6 +326,9 @@ const char *lo_address_errstr(lo_address a)
     if (a->errstr) {
         return a->errstr;
     }
+
+    if (a->errnum == 0)
+        return "Success";
 
     msg = strerror(a->errnum);
     if (msg) {
@@ -527,10 +533,8 @@ void lo_address_copy(lo_address to, lo_address from)
     to->protocol = from->protocol;
     to->ttl = from->ttl;
     to->addr = from->addr;
-    if (from->addr.iface) {
-        free(to->addr.iface);
+    if (from->addr.iface)
         to->addr.iface = strdup(from->addr.iface);
-    }
 }
 
 void lo_address_init_with_sockaddr(lo_address a,

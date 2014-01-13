@@ -31,15 +31,19 @@
 #ifdef _MSC_VER
 #define _WINSOCKAPI_
 #define snprintf _snprintf
+#include <time.h>
 #else
 #include <unistd.h>
+#include <sys/time.h>
 #endif
 
 #if defined(WIN32) || defined(_MSC_VER)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <malloc.h>
+#ifndef EADDRINUSE
 #define EADDRINUSE WSAEADDRINUSE
+#endif
 #else
 #include <netdb.h>
 #include <sys/socket.h>
@@ -646,7 +650,7 @@ int lo_server_join_multicast_group(lo_server s, const char *group,
             int err = geterror();
             lo_throw(s, err, strerror(err), "inet_aton()");
             lo_server_free(s);
-            return err;
+            return err ? err : 1;
         }
 #else
         mreq.imr_multiaddr.s_addr = inet_addr(group);
@@ -655,7 +659,7 @@ int lo_server_join_multicast_group(lo_server s, const char *group,
             int err = geterror();
             lo_throw(s, err, strerror(err), "inet_addr()");
             lo_server_free(s);
-            return err;
+            return err ? err : 1;
         }
 #endif
     }
@@ -677,7 +681,7 @@ int lo_server_join_multicast_group(lo_server s, const char *group,
         int err = geterror();
         lo_throw(s, err, strerror(err), "setsockopt(IP_ADD_MEMBERSHIP)");
         lo_server_free(s);
-        return err;
+        return err ? err : 1;
     }
 
     return 0;
@@ -1523,8 +1527,8 @@ int lo_server_add_socket(lo_server s, int socket, lo_address a,
                            sizeof(*(s->sockets)) * (s->sockets_alloc * 2));
         if (!sp)
             return -1;
-        s->sockets = (void*)sp;
-        memset(sp + s->sockets_alloc*sizeof(*s->sockets),
+        s->sockets = sp;
+        memset((char*)sp + s->sockets_alloc*sizeof(*s->sockets),
                0, s->sockets_alloc*sizeof(*s->sockets));
 
         sc = realloc(s->contexts,
@@ -1532,8 +1536,8 @@ int lo_server_add_socket(lo_server s, int socket, lo_address a,
                      * (s->sockets_alloc * 2));
         if (!sc)
             return -1;
-        s->contexts = (void*)sc;
-        memset(sc + s->sockets_alloc*sizeof(*s->contexts),
+        s->contexts = sc;
+        memset((char*)sc + s->sockets_alloc*sizeof(*s->contexts),
                0, s->sockets_alloc*sizeof(*s->contexts));
 
         s->sockets_alloc *= 2;

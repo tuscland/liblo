@@ -1,6 +1,6 @@
 AC_PREREQ([2.69])
 
-AC_INIT([liblo],[0.27],[liblo-devel@lists.sourceforge.net])
+AC_INIT([liblo],[0.28rc],[liblo-devel@lists.sourceforge.net])
 
 # libtool version: current:revision:age
 #
@@ -71,11 +71,48 @@ AC_MSG_RESULT([$printf_ll])
 AC_DEFINE_UNQUOTED([PRINTF_LL],[$printf_ll],[printf code for type long long int])
 CFLAGS="$_CFLAGS"
 
+# Check for C++11 features
+AC_PROG_CXX
+_CXXFLAGS="$CXXFLAGS"
+
+AC_MSG_CHECKING([whether C++11 lambdas are supported])
+AC_LANG(C++)
+CXXFLAGS="$_CXXFLAGS -std=c++11"
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM([#include <functional>],[[[]](std::function<void()> f){f();}([[]](){0;});])],
+    [AC_MSG_RESULT([yes])
+     HAVE_LAMBDA=yes],
+    [
+CXXFLAGS="$_CXXFLAGS -std=c++0x"
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM([#include <functional>],[[[]](std::function<void()> f){f();}([[]](){0;});])],
+    [AC_MSG_RESULT([yes])
+     HAVE_LAMBDA=yes],
+    [
+CXXFLAGS="$_CXXFLAGS -std=c++11 -stdlib=libc++"
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM([#include <functional>],[[[]](std::function<void()> f){f();}([[]](){0;});])],
+    [AC_MSG_RESULT([yes])
+     HAVE_LAMBDA=yes],
+    [AC_MSG_RESULT([no])
+     CXXFLAGS="$_CXXFLAGS"])])])
+AC_LANG(C)
+AM_CONDITIONAL([HAVE_LAMBDA],[test x$HAVE_LAMBDA = xyes])
+
 # Check if threads are wanted
 AC_ARG_ENABLE(threads,
   [  --enable-threads        Enable server threads],
   [want_threads=$enableval],
   [want_threads=yes])
+
+# Filter out -Werror temporarily, otherwise library checks can fail
+CFLAGS_nowerror="`echo $CFLAGS | sed 's/-Werror\([^=]\|$\)//'`"
+if test "$CFLAGS" = "$CFLAGS_nowerror"; then
+  CFLAGS_werror=
+else
+  CFLAGS_werror=" -Werror"
+  CFLAGS="$CFLAGS_nowerror"
+fi
 
 # Checks for libraries.
 AC_SEARCH_LIBS([recvfrom], [socket])
@@ -91,6 +128,9 @@ if test "x$want_threads" = "xyes"; then
      AC_DEFINE(ENABLE_THREADS, 1, [Define this to enable threads.])],
     [AC_MSG_ERROR(pthread not found. Try option --disable-threads.)])
 fi
+
+# Add back -Werror if it was there before
+CFLAGS="$CFLAGS""$CFLAGS_werror"
 
 AC_SUBST(LIBPTHREAD)
 AC_SUBST(DEFTHREADS)
@@ -126,6 +166,10 @@ AC_CHECK_FUNC([inet_pton], [AC_DEFINE(HAVE_INET_PTON, [1], [Define to 1 if inet_
 AM_CONDITIONAL(WINDOWS, test x$is_windows = xyes)
 AM_CONDITIONAL(WINDOWS_DLL, test x$is_windows = xyes && test x$enable_shared = xyes)
 
+if test x$is_windows = xyes; then
+  CXXFLAGS="$CXXFLAGS -DWIN32 -D_WIN32_WINNT=0x501"
+fi
+
 # Note that configure-time endianness detection may be ignored during
 # Apple universal builds, see lo/lo_endian.h.in
 LO_BIGENDIAN="2"
@@ -147,6 +191,13 @@ if test x"$enable_debug" = "xyes"; then
         fi
     done
 	CFLAGS="$CF -O0 -g -Wall -Werror"
+    CF=""
+    for i in $CXXFLAGS; do
+        if ! ((test x"$i" = x-g) || (test x"$i" = x-O2)); then
+            CF="$CF $i"
+        fi
+    done
+	CXXFLAGS="$CF -O0 -g -Wall -Werror"
 fi
 
 AC_CONFIG_FILES([
