@@ -71,9 +71,6 @@
    */
 #define LT_OBJDIR ".libs/"
 
-/* Define to 1 if your C compiler doesn't accept -c and -o together. */
-/* #undef NO_MINUS_C_MINUS_O */
-
 /* Name of package */
 #define PACKAGE "liblo"
 
@@ -84,7 +81,7 @@
 #define PACKAGE_NAME "liblo"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "liblo 0.27"
+#define PACKAGE_STRING "liblo 0.28rc"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "liblo"
@@ -93,16 +90,15 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "0.27"
-
-/* printf code for type long long int */
-#define PRINTF_LL "ll"
+#define PACKAGE_VERSION "0.28rc"
 
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
 
+/* printf code for type long long int */
+#define PRINTF_LL "ll"
 /* Version number of package */
-#define VERSION "0.27"
+#define VERSION "0.28rc"
 
 /* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
    significant byte first (like Motorola and SPARC, unlike Intel). */
