@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU Lesser General Public License as
@@ -287,7 +287,7 @@ int lo_message_add_varargs_internal(lo_message msg, const char *types,
     return ret;
 }
 
-#ifdef USE_ANSI_C
+#if defined(USE_ANSI_C) || defined(DLL_EXPORT)
 int lo_message_add(lo_message msg, const char *types, ...)
 {
     va_list ap;
@@ -609,7 +609,8 @@ ssize_t lo_validate_blob(void *data, ssize_t size)
         return -LO_ESIZE;       // invalid size
     }
     dsize = lo_otoh32(*(uint32_t *) data);
-    if (dsize > LO_MAX_MSG_SIZE) {      // avoid int overflow in next step
+    // described size must fit within the buffer
+    if (dsize > size) {      // avoid int overflow in next step
         return -LO_ESIZE;
     }
     end = sizeof(uint32_t) + dsize;     // end of data

@@ -164,7 +164,9 @@ namespace lo {
         int send_from(lo_server from, const string_type &path, lo_message m) const
             { return lo_send_message_from(address, from, path, m); }
 
-        int send(lo_server from, lo_bundle b) const
+        int send_from(lo::ServerThread &from, lo_bundle b) const;
+
+        int send_from(lo_server from, lo_bundle b) const
             { return lo_send_bundle_from(address, from, b); }
 
         int get_errno() const
@@ -379,7 +381,7 @@ namespace lo {
             : Server(lo_server_new(port,
               [](int num, const char *msg, const char *where){
                 auto h = static_cast<handler_error*>(lo_error_get_context());
-                (*h)(num, msg, where);
+                if (h) (*h)(num, msg, where);
               }))
         {
             if (server) {
@@ -587,11 +589,12 @@ namespace lo {
 
         template <typename E>
         ServerThread(const num_string_type &port, E&& e)
-            : Server(lo_server_thread_get_server(
-                  server_thread = lo_server_thread_new(port,
-                  [](int num, const char *msg, const char *where){
-                      auto h = static_cast<handler_error*>(lo_error_get_context());
-                      (*h)(num, msg, where);})))
+            : Server(
+		     (server_thread = lo_server_thread_new(port,
+                       [](int num, const char *msg, const char *where){
+                       auto h = static_cast<handler_error*>(lo_error_get_context());
+		       if (h) (*h)(num, msg, where);}))
+		     ? lo_server_thread_get_server(server_thread) : 0)
             {
                 if (server_thread) {
                     auto h = new handler_error(e);
@@ -640,6 +643,12 @@ namespace lo {
 		int r = lo_send_message_from(address, s, path, m);
 		lo_message_free(m);
 		return r;
+	}
+
+	int Address::send_from(lo::ServerThread &from, lo_bundle b) const
+	{
+		lo_server s = static_cast<lo::Server&>(from);
+		return lo_send_bundle_from(address, s, b);
 	}
 
     class Blob
@@ -802,6 +811,15 @@ namespace lo {
       protected:
         lo_bundle bundle;
     };
+
+    std::string version() {
+        char str[32];
+        lo_version(str, 32, 0, 0, 0, 0, 0, 0, 0);
+        return std::string(str);
+    }
+
+    lo_timetag now() { lo_timetag tt; lo_timetag_now(&tt); return tt; }
+    lo_timetag immediate() { return LO_TT_IMMEDIATE; }
 };
 
 #endif // _LO_CPP_H_

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU Lesser General Public License as
@@ -96,7 +96,7 @@ int lo_send_varargs_internal(lo_address t, const char *file,
     return ret;
 }
 
-#ifdef USE_ANSI_C
+#if defined(USE_ANSI_C) || defined(DLL_EXPORT)
 int lo_send(lo_address t, const char *path, const char *types, ...)
 {
     const char *file = "";
@@ -145,7 +145,7 @@ int lo_send_timestamped_varargs_internal(lo_address t, const char *file,
 }
 
 
-#ifdef USE_ANSI_C
+#if defined(USE_ANSI_C) || defined(DLL_EXPORT)
 int lo_send_timestamped(lo_address t, lo_timetag ts,
                         const char *path, const char *types, ...)
 {
@@ -206,7 +206,7 @@ int lo_send_from_varargs_internal(lo_address to, lo_server from,
     return ret;
 }
 
-#ifdef USE_ANSI_C
+#if defined(USE_ANSI_C) || defined(DLL_EXPORT)
 int lo_send_from(lo_address to, lo_server from, lo_timetag ts,
                  const char *path, const char *types, ...)
 {
@@ -435,7 +435,7 @@ static int send_data(lo_address a, lo_server from, char *data,
         return -1;
 #endif
 
-    if (data_len > LO_MAX_MSG_SIZE) {
+    if (a->protocol == LO_UDP && data_len > LO_MAX_UDP_MSG_SIZE) {
         a->errnum = 99;
         a->errstr = "Attempted to send message in excess of maximum "
             "message size";

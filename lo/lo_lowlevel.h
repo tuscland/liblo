@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public License
@@ -898,6 +898,26 @@ int lo_server_events_pending(lo_server s);
  * If the delay is greater than 100 seconds then it will return 100.0.
  */
 double lo_server_next_event_delay(lo_server s);
+
+/** 
+ * \brief Set the maximum message size accepted by a server.
+ *
+ * For UDP servers, the maximum message size cannot exceed 64k, due to
+ * the UDP transport specifications.  For TCP servers, this number may
+ * be larger, but be aware that one or more contiguous blocks of
+ * memory of this size may be allocated by liblo.  (At least one per
+ * connection.)
+ *
+ * \param s The server on which to operate.
+ * \param req_size The new maximum message size to request, 0 if it
+ * should not be modified, or -1 if it should be set to unlimited.
+ * Note that an unlimited message buffer may make your application
+ * open to a denial of service attack.
+ * \return The new maximum message size is returned, which may or may
+ * not be equal to req_size.  If -1 is returned, maximum size is
+ * unlimited.
+ */
+int lo_server_max_msg_size(lo_server s, int req_size);
 
 /**
  * \brief Return the protocol portion of an OSC URL, eg. udp, tcp.

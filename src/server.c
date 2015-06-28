@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU Lesser General Public License as
@@ -27,11 +27,11 @@
 #include <float.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <time.h>
 
 #ifdef _MSC_VER
 #define _WINSOCKAPI_
 #define snprintf _snprintf
-#include <time.h>
 #else
 #include <unistd.h>
 #include <sys/time.h>
@@ -78,6 +78,7 @@ typedef struct {
 } queued_msg_list;
 
 struct lo_cs lo_client_sockets = { -1, -1 };
+static int reuseport_supported = 1;
 
 static int lo_can_coerce_spec(const char *a, const char *b);
 static int lo_can_coerce(char a, char b);
@@ -189,26 +190,28 @@ static unsigned int get_family_PF(const char *ip, const char *port)
 }
 #endif
 
-static int lo_server_setsock_reuseaddr(lo_server s)
+static int lo_server_setsock_reuseaddr(lo_server s, int do_throw)
 {
     unsigned int yes = 1;
     if (setsockopt(s->sockets[0].fd, SOL_SOCKET, SO_REUSEADDR,
                    (char*)&yes, sizeof(yes)) < 0) {
         int err = geterror();
-        lo_throw(s, err, strerror(err), "setsockopt(SO_REUSEADDR)");
+		if (do_throw)
+			lo_throw(s, err, strerror(err), "setsockopt(SO_REUSEADDR)");
         return err;
     }
     return 0;
 }
 
-static int lo_server_setsock_reuseport(lo_server s)
+static int lo_server_setsock_reuseport(lo_server s, int do_throw)
 {
 #ifdef SO_REUSEPORT
     unsigned int yes = 1;
     if (setsockopt(s->sockets[0].fd, SOL_SOCKET, SO_REUSEPORT,
                    &yes, sizeof(yes)) < 0) {
         int err = geterror();
-        lo_throw(s, err, strerror(err), "setsockopt(SO_REUSEPORT)");
+		if (do_throw)
+			lo_throw(s, err, strerror(err), "setsockopt(SO_REUSEPORT)");
         return err;
     }
 #endif
@@ -284,6 +287,49 @@ lo_server lo_server_new_from_url(const char *url,
     return s;
 }
 
+static
+void lo_server_resolve_hostname(lo_server s)
+{
+    char hostname[LO_HOST_SIZE];
+
+    /* Set hostname to empty string */
+    hostname[0] = '\0';
+
+#ifdef ENABLE_IPV6
+    /* Try it the IPV6 friendly way first */
+    for (it = ai; it; it = it->ai_next) {
+        if (getnameinfo(it->ai_addr, it->ai_addrlen, hostname,
+                        sizeof(hostname), NULL, 0, NI_NAMEREQD) == 0) {
+            break;
+        }
+    }
+
+    /* check to make sure getnameinfo() didn't just set the hostname to "::".
+       Needed on Darwin. */
+    if (hostname[0] == ':') {
+        hostname[0] = '\0';
+    }
+#endif
+
+    /* Fallback to the oldschool (i.e. more reliable) way */
+    if (!hostname[0]) {
+        struct hostent *he;
+
+        gethostname(hostname, sizeof(hostname));
+        he = gethostbyname(hostname);
+        if (he) {
+            strncpy(hostname, he->h_name, sizeof(hostname));
+        }
+    }
+
+    /* somethings gone really wrong, just hope its local only */
+    if (!hostname[0]) {
+        strcpy(hostname, "localhost");
+    }
+
+    s->hostname = strdup(hostname);
+}
+
 lo_server lo_server_new_with_proto_internal(const char *group,
                                             const char *port,
                                             const char *iface,
@@ -297,7 +343,6 @@ lo_server lo_server_new_with_proto_internal(const char *group,
     int tries = 0;
     char pnum[16];
     const char *service;
-    char hostname[LO_HOST_SIZE];
     int err = 0;
 
 #if defined(WIN32) || defined(_MSC_VER)
@@ -355,6 +400,7 @@ lo_server lo_server_new_with_proto_internal(const char *group,
     }
 
     s->sockets[0].fd = -1;
+    s->max_msg_size = LO_DEFAULT_MAX_MSG_SIZE;
 
     memset(&hints, 0, sizeof(hints));
 
@@ -426,7 +472,7 @@ lo_server lo_server_new_with_proto_internal(const char *group,
         if (!port) {
             /* not a good way to get random numbers, but its not critical */
             snprintf(pnum, 15, "%ld", 10000 + ((unsigned int) rand() +
-                                               time(NULL)) % 10000);
+                                               (long int)time(NULL)) % 10000);
         }
 
         if (ai)
@@ -485,17 +531,18 @@ lo_server lo_server_new_with_proto_internal(const char *group,
         if (group != NULL
             || proto == LO_TCP)
         {
-            err = lo_server_setsock_reuseaddr(s);
+            err = lo_server_setsock_reuseaddr(s, 1);
             if (err) {
                 lo_server_free(s);
                 return NULL;
             }
         }
 
-        if (group != NULL)
+        if (group != NULL && reuseport_supported)
         {
             /* Ignore the error if SO_REUSEPORT wasn't successful. */
-            lo_server_setsock_reuseport(s);
+            if (lo_server_setsock_reuseport(s, 0))
+				reuseport_supported = 0;
         }
 
 #if defined(WIN32) || defined(_MSC_VER)
@@ -548,43 +595,6 @@ lo_server lo_server_new_with_proto_internal(const char *group,
     } else if (proto == LO_TCP) {
         lo_client_sockets.tcp = s->sockets[0].fd;
     }
-
-    /* Set hostname to empty string */
-    hostname[0] = '\0';
-
-#ifdef ENABLE_IPV6
-    /* Try it the IPV6 friendly way first */
-    for (it = ai; it; it = it->ai_next) {
-        if (getnameinfo(it->ai_addr, it->ai_addrlen, hostname,
-                        sizeof(hostname), NULL, 0, NI_NAMEREQD) == 0) {
-            break;
-        }
-    }
-
-    /* check to make sure getnameinfo() didn't just set the hostname to "::".
-       Needed on Darwin. */
-    if (hostname[0] == ':') {
-        hostname[0] = '\0';
-    }
-#endif
-
-
-    /* Fallback to the oldschool (i.e. more reliable) way */
-    if (!hostname[0]) {
-        struct hostent *he;
-
-        gethostname(hostname, sizeof(hostname));
-        he = gethostbyname(hostname);
-        if (he) {
-            strncpy(hostname, he->h_name, sizeof(hostname));
-        }
-    }
-
-    /* soethings gone really wrong, just hope its local only */
-    if (!hostname[0]) {
-        strcpy(hostname, "localhost");
-    }
-    s->hostname = strdup(hostname);
 
     if (used->ai_family == PF_INET6) {
         struct sockaddr_in6 *addr = (struct sockaddr_in6 *) used->ai_addr;
@@ -789,20 +799,39 @@ int lo_server_enable_queue(lo_server s, int enable,
 
 void *lo_server_recv_raw(lo_server s, size_t * size)
 {
-    char buffer[LO_MAX_MSG_SIZE];
-    int ret;
+    char *buffer = NULL;
+    int ret, heap_buffer = 0;
     void *data = NULL;
 
-#if defined(WIN32) || defined(_MSC_VER)
-    if (!initWSock())
+    if (s->max_msg_size > 4096) {
+        buffer = malloc(s->max_msg_size);
+        heap_buffer = 1;
+    }
+    else if (buffer > 0) {
+        buffer = alloca(s->max_msg_size);
+    }
+
+    if (!buffer)
         return NULL;
+
+    if (s->max_msg_size<=0) {
+        if (heap_buffer) free(buffer);
+        return NULL;
+    }
+
+#if defined(WIN32) || defined(_MSC_VER)
+    if (!initWSock()) {
+        if (heap_buffer) free(buffer);
+        return NULL;
+    }
 #endif
 
     s->addr_len = sizeof(s->addr);
 
-    ret = recvfrom(s->sockets[0].fd, buffer, LO_MAX_MSG_SIZE, 0,
+    ret = recvfrom(s->sockets[0].fd, buffer, s->max_msg_size, 0,
                    (struct sockaddr *) &s->addr, &s->addr_len);
     if (ret <= 0) {
+        if (heap_buffer) free(buffer);
         return NULL;
     }
     data = malloc(ret);
@@ -811,6 +840,7 @@ void *lo_server_recv_raw(lo_server s, size_t * size)
     if (size)
         *size = ret;
 
+    if (heap_buffer) free(buffer);
     return data;
 }
 
@@ -839,6 +869,7 @@ static int slip_decode(unsigned char **buffer, unsigned char *from,
                 return 0;
             case SLIP_ESC:
                 *state = 1;
+                from++;
                 continue;
             default:
                 *(*buffer)++ = *from++;
@@ -849,9 +880,11 @@ static int slip_decode(unsigned char **buffer, unsigned char *from,
             switch (*from) {
             case SLIP_ESC_END:
                 *(*buffer)++ = SLIP_END;
+                from++;
                 break;
             case SLIP_ESC_ESC:
                 *(*buffer)++ = SLIP_ESC;
+                from++;
                 break;
             }
             *state = 0;
@@ -978,8 +1011,10 @@ int lo_server_recv_raw_stream_socket(lo_server s, int isock,
         // size as in UDP, however we leave it for security
         // reasons--an unterminated SLIP stream would consume memory
         // indefinitely.
-        if (size > LO_MAX_MSG_SIZE)
-            size = LO_MAX_MSG_SIZE;
+        if (s->max_msg_size != -1 && size > s->max_msg_size) {
+            size = s->max_msg_size;
+            break;
+        }
 
         buffer_bytes_left = size - sc->buffer_read_offset;
     }
@@ -1156,7 +1191,7 @@ void *lo_server_recv_raw_stream(lo_server s, size_t * size, int *psock)
 
     poll(s->sockets, s->sockets_len, -1);
 
-    for (i = (s->sockets_len - 1) && !data; i >= 0; --i) {
+    for (i = data ? 0 : (s->sockets_len - 1); i >= 0; --i) {
         if (s->sockets[i].revents == POLLERR
             || s->sockets[i].revents == POLLHUP) {
             if (i > 0) {
@@ -2085,6 +2120,9 @@ char *lo_server_get_url(lo_server s)
     if (s->protocol == LO_UDP || s->protocol == LO_TCP) {
         const char *proto = s->protocol == LO_UDP ? "udp" : "tcp";
 
+        if (!s->hostname)
+            lo_server_resolve_hostname(s);
+
 #ifndef _MSC_VER
         ret =
             snprintf(NULL, 0, "osc.%s://%s:%d/", proto, s->hostname,
@@ -2181,6 +2219,31 @@ void *lo_error_get_context()
 void lo_server_set_error_context(lo_server s, void *user_data)
 {
     s->error_user_data = user_data;
+}
+
+int lo_server_max_msg_size(lo_server s, int req_size)
+{
+    if (req_size == 0)
+        return s->max_msg_size;
+
+    if (s->protocol == LO_UDP) {
+        if (req_size > 65535)
+            req_size = 65535;
+
+        if (req_size < 0)
+            return s->max_msg_size;
+    }
+    else if (s->protocol == LO_TCP)
+    {
+        // TODO: We could potentially shrink the TCP buffers here
+        // if req_size < buffer_size for any open sockets, but
+        // care must be taken to clean up any data already in the
+        // buffers.
+    }
+
+    s->max_msg_size = req_size;
+
+    return s->max_msg_size;
 }
 
 /* vi:set ts=8 sts=4 sw=4: */

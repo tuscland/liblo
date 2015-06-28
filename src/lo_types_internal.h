@@ -20,6 +20,7 @@
 #else
 #define closesocket close
 #include <netdb.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 #endif
 
@@ -167,6 +168,7 @@ typedef struct _lo_server {
     void *bundle_handler_user_data;
     struct _lo_inaddr addr_if;
     void *error_user_data;
+    int max_msg_size;
 } *lo_server;
 
 #ifdef ENABLE_THREADS
