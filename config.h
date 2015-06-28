@@ -67,8 +67,7 @@
 /* If machine is bigendian */
 #define LO_BIGENDIAN "0"
 
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
 #define LT_OBJDIR ".libs/"
 
 /* Name of package */
@@ -92,11 +91,12 @@
 /* Define to the version of this package. */
 #define PACKAGE_VERSION "0.28rc"
 
+/* printf code for type long long int */
+#define PRINTF_LL "ll"
+
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
 
-/* printf code for type long long int */
-#define PRINTF_LL "ll"
 /* Version number of package */
 #define VERSION "0.28rc"
 
