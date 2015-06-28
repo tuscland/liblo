@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU Lesser General Public License as
@@ -14,6 +14,10 @@
  *  $Id$
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,12 +27,12 @@
 
 lo_bundle lo_bundle_new(lo_timetag tt)
 {
-    lo_bundle b = calloc(1, sizeof(struct _lo_bundle));
+    lo_bundle b = (lo_bundle) calloc(1, sizeof(struct _lo_bundle));
 
     b->size = 4;
     b->len = 0;
     b->ts = tt;
-    b->elmnts = calloc(b->size, sizeof(lo_element));
+    b->elmnts = (lo_element*) calloc(b->size, sizeof(lo_element));
     b->refcount = 0;
 
     return b;
@@ -49,7 +53,7 @@ static lo_bundle *push_to_list(lo_bundle *list, lo_bundle ptr, size_t *len, size
 {
     if (*len >= *size) {
 	*size *= 2;
-	list = realloc(list, *size * sizeof(lo_bundle));
+	list = (lo_bundle*) realloc(list, *size * sizeof(lo_bundle));
     }
 
     list[*len] = ptr;
@@ -110,7 +114,7 @@ static int lo_bundle_circular(lo_bundle b)
     size_t len = 0;
     size_t size = 4;
     int res;
-    lo_bundle *B = calloc(size, sizeof(lo_bundle));
+    lo_bundle *B = (lo_bundle*) calloc(size, sizeof(lo_bundle));
 
     B = walk_tree(B, b, &len, &size, &res);
 
@@ -124,24 +128,25 @@ static int lo_bundle_add_element(lo_bundle b, int type, const char *path, void *
 {
     if (b->len >= b->size) {
 	b->size *= 2;
-	b->elmnts = realloc(b->elmnts, b->size * sizeof(lo_element));
+	b->elmnts = (lo_element*) realloc(b->elmnts,
+                                      b->size * sizeof(lo_element));
 	if (!b->elmnts)
 	    return -1;
     }
 
-    b->elmnts[b->len].type = type;
+    b->elmnts[b->len].type = (lo_element_type) type;
 
     switch (type) {
 	case LO_ELEMENT_MESSAGE: {
-	    lo_message msg = elmnt;
+	    lo_message msg = (lo_message) elmnt;
         lo_message_incref(msg);
 	    b->elmnts[b->len].content.message.msg = msg;
-	    b->elmnts[b->len].content.message.path = path;
+	    b->elmnts[b->len].content.message.path = strdup(path);
 	    (b->len)++;
 	    break;
 	}
 	case LO_ELEMENT_BUNDLE: {
-	    lo_bundle bndl = elmnt;
+	    lo_bundle bndl = (lo_bundle) elmnt;
         lo_bundle_incref(bndl);
 	    b->elmnts[b->len].content.bundle = bndl;
 	    (b->len)++;
@@ -186,7 +191,7 @@ lo_element_type lo_bundle_get_type(lo_bundle b, int index)
     if (index < (int)b->len) {
         return b->elmnts[index].type;
     }
-    return 0;
+    return (lo_element_type) 0;
 }
 
 lo_bundle lo_bundle_get_bundle(lo_bundle b, int index)
@@ -215,7 +220,7 @@ lo_timetag lo_bundle_get_timestamp(lo_bundle b)
 
 unsigned int lo_bundle_count(lo_bundle b)
 {
-    return b->len;
+    return (unsigned int) b->len;
 }
 
 size_t lo_bundle_length(lo_bundle b)
@@ -264,7 +269,7 @@ void *lo_bundle_serialise(lo_bundle b, void *to, size_t * size)
         to = calloc(1, s);
     }
 
-    pos = to;
+    pos = (char*) to;
     strcpy(pos, "#bundle");
     pos += 8;
 
@@ -289,14 +294,14 @@ void *lo_bundle_serialise(lo_bundle b, void *to, size_t * size)
 	*bes = lo_htoo32(skip);
 	pos += skip + 4;
 
-	if (pos > (char *) to + s) {
+	if (pos > (char*) to + s) {
             fprintf(stderr, "liblo: data integrity error at message %lu\n",
                     (long unsigned int)i);
 
 	    return NULL;
 	}
     }
-    if (pos != (char *) to + s) {
+    if (pos != (char*) to + s) {
         fprintf(stderr, "liblo: data integrity error\n");
         if (to) {
             free(to);
@@ -327,6 +332,7 @@ static void collect_element(lo_element *elmnt)
 	case LO_ELEMENT_MESSAGE: {
 	    lo_message msg = elmnt->content.message.msg;
 		lo_message_free(msg);
+        free((char*)elmnt->content.message.path);
 	    break;
 	}
 
@@ -363,7 +369,7 @@ void lo_bundle_free_recursive(lo_bundle b)
 
 static void offset_pp(int offset, int *state)
 {
-    size_t i;
+    int i;
 
     for (i=0; i < offset; i++) {
 	if (!state[i])
@@ -378,13 +384,14 @@ static void offset_pp(int offset, int *state)
 	printf("└─");
 }
 
-static int *lo_bundle_pp_internal(lo_bundle b, int offset, int *state, size_t *len)
+static int *lo_bundle_pp_internal(lo_bundle b, unsigned int offset,
+                                  int *state, size_t *len)
 {
     size_t i;
    
     if (offset+2 > *len) {
 	*len *= 2;
-	state = realloc(state, *len*sizeof(int));
+	state = (int*) realloc(state, *len*sizeof(int));
     }
 
     offset_pp(offset, state);
@@ -416,7 +423,7 @@ void lo_bundle_pp(lo_bundle b)
         return;
 
     len = 4;
-    state = calloc(len, sizeof(int));
+    state = (int*) calloc(len, sizeof(int));
 
     state[0] = 1;
     state = lo_bundle_pp_internal(b, 0, state, &len);

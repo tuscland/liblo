@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris, Uwe Koloska
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU Lesser General Public License as
@@ -16,8 +16,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef WIN32
 #include <unistd.h>
-
+#endif
 #include "lo/lo.h"
 
 const char testdata[6] = "ABCDE";
@@ -46,6 +47,17 @@ int main(int argc, char *argv[])
                    lo_address_errstr(t));
         }
 
+        /* send a pattern message to /foo/bar handler; note that
+         * pattern messages will be dispatched by all matching
+         * handlers, so the generic handler will also trigger. */
+        lo_send(t, "/f*/bar", "ff", 0.12345678f, 34.0f);
+
+        /* send a pattern message to /foo/bar handler */
+        lo_send(t, "/foo/b*", "ff", 0.12345678f, 56.0f);
+
+        /* send a pattern message to /foo/bar handler */
+        lo_send(t, "/f*", "ff", 0.12345678f, 78.0f);
+
         /* send a message to /a/b/c/d with a mixtrure of float and string
          * arguments */
         lo_send(t, "/a/b/c/d", "sfsff", "one", 0.12345678f, "three",
@@ -53,6 +65,12 @@ int main(int argc, char *argv[])
 
         /* send a 'blob' object to /a/b/c/d */
         lo_send(t, "/a/b/c/d", "b", btest);
+
+        /* send a 'blob' object to /blobtest */
+        lo_send(t, "/blobtest", "b", btest);
+
+        /* send a message to test method dispatch pattern matching */
+        lo_send(t, "/patterntest", "");
 
         /* send a jamin scene change instruction with a 32bit integer argument */
         lo_send(t, "/jamin/scene", "i", 2);

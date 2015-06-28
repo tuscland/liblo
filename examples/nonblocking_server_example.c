@@ -4,7 +4,7 @@
  *  This code demonstrates two methods of monitoring both an lo_server
  *  and other I/O from a single thread.
  *
- *  Copyright (C) 2004 Steve Harris, Uwe Koloska
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU Lesser General Public License as
@@ -21,10 +21,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <sys/types.h>
-#include <strings.h>
+#ifndef WIN32
+#include <sys/time.h>
 #include <unistd.h>
+#endif
 
 #include "lo/lo.h"
 
@@ -33,13 +34,13 @@ int done = 0;
 void error(int num, const char *m, const char *path);
 
 int generic_handler(const char *path, const char *types, lo_arg ** argv,
-                    int argc, void *data, void *user_data);
+                    int argc, lo_message data, void *user_data);
 
 int foo_handler(const char *path, const char *types, lo_arg ** argv,
-                int argc, void *data, void *user_data);
+                int argc, lo_message data, void *user_data);
 
 int quit_handler(const char *path, const char *types, lo_arg ** argv,
-                 int argc, void *data, void *user_data);
+                 int argc, lo_message data, void *user_data);
 
 void read_stdin(void);
 
@@ -150,7 +151,7 @@ void error(int num, const char *msg, const char *path)
 /* catch any incoming messages and display them. returning 1 means that the
  * message has not been fully handled and the server should try other methods */
 int generic_handler(const char *path, const char *types, lo_arg ** argv,
-                    int argc, void *data, void *user_data)
+                    int argc, lo_message data, void *user_data)
 {
     int i;
 
@@ -167,7 +168,7 @@ int generic_handler(const char *path, const char *types, lo_arg ** argv,
 }
 
 int foo_handler(const char *path, const char *types, lo_arg ** argv,
-                int argc, void *data, void *user_data)
+                int argc, lo_message data, void *user_data)
 {
     /* example showing pulling the argument values out of the argv array */
     printf("%s <- f:%f, i:%d\n\n", path, argv[0]->f, argv[1]->i);
@@ -177,7 +178,7 @@ int foo_handler(const char *path, const char *types, lo_arg ** argv,
 }
 
 int quit_handler(const char *path, const char *types, lo_arg ** argv,
-                 int argc, void *data, void *user_data)
+                 int argc, lo_message data, void *user_data)
 {
     done = 1;
     printf("quiting\n\n");
@@ -187,6 +188,9 @@ int quit_handler(const char *path, const char *types, lo_arg ** argv,
 
 void read_stdin(void)
 {
+#ifdef WIN32
+  return;
+#else
     char buf[256];
     int len = read(0, buf, 256);
     if (len > 0) {
@@ -195,6 +199,7 @@ void read_stdin(void)
         printf("\n");
         fflush(stdout);
     }
+#endif
 }
 
 /* vi:set ts=8 sts=4 sw=4: */

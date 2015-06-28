@@ -18,21 +18,31 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#ifndef ESP_PLATFORM
 #define closesocket close
+#endif
 #include <netdb.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 #endif
 
 #ifdef _MSC_VER
 typedef SSIZE_T ssize_t;
-typedef unsigned __int64 uint64_t;
-typedef unsigned __int32 uint32_t;
-typedef __int64 int64_t;
-typedef __int32 int32_t;
+#endif
+
+#if !defined(UINT_PTR) && !defined(WIN32)
+  #ifdef HAVE_UINTPTR_T
+    #include <stdint.h>
+    #define UINT_PTR uintptr_t
+  #else
+    #define UINT_PTR unsigned long
+  #endif
 #endif
 
 #ifdef ENABLE_THREADS
+#ifdef HAVE_LIBPTHREAD
 #include <pthread.h>
+#endif
 #endif
 
 #include "lo/lo_osc_types.h"
@@ -42,8 +52,9 @@ typedef __int32 int32_t;
 /** \brief Bitflags for optional protocol features, set by
  *         lo_address_set_flags(). */
 typedef enum {
-    LO_SLIP=0x01,     /*!< SLIP decoding */
-    LO_NODELAY=0x02,  /*!< Set the TCP_NODELAY socket option. */
+    LO_SLIP=0x01,         /*!< SLIP decoding */
+    LO_NODELAY=0x02,      /*!< Set the TCP_NODELAY socket option. */
+    LO_SLIP_DBL_END=0x04, /*!< Set SLIP encoding to double-END. */
 } lo_proto_flags;
 
 /** \brief Bitflags for optional server features. */
@@ -119,6 +130,7 @@ typedef int (*lo_bundle_end_handler) (void *user_data);
 typedef struct _lo_method {
     const char *path;
     const char *typespec;
+    int has_pattern;
     lo_method_handler handler;
     char *user_data;
     struct _lo_method *next;
@@ -129,9 +141,15 @@ struct socket_context {
     size_t buffer_size;
     unsigned int buffer_msg_offset;
     unsigned int buffer_read_offset;
-    int is_slip;                        //<! 1 if slip mode, 0 otherwise, -1 for unknown
-    int slip_state;                     //<! state variable for slip decoding
+    int is_slip;    /*!< 1 if slip mode, 0 otherwise, -1 for unknown */
+    int slip_state; /*!< state variable for slip decoding */
 };
+
+#ifdef HAVE_POLL
+    typedef struct pollfd lo_server_fd_type;
+#else
+    typedef struct { int fd; } lo_server_fd_type;
+#endif
 
 typedef struct _lo_server {
     struct addrinfo *ai;
@@ -147,13 +165,7 @@ typedef struct _lo_server {
     socklen_t addr_len;
     int sockets_len;
     int sockets_alloc;
-#ifdef HAVE_POLL
-    struct pollfd *sockets;
-#else
-    struct {
-        int fd;
-    } *sockets;
-#endif
+    lo_server_fd_type *sockets;
 
     // Some extra data needed per open socket.  Note that we don't put
     // it in the socket struct, because that layout is needed for
@@ -167,14 +179,29 @@ typedef struct _lo_server {
     void *bundle_handler_user_data;
     struct _lo_inaddr addr_if;
     void *error_user_data;
+    int max_msg_size;
 } *lo_server;
 
 #ifdef ENABLE_THREADS
+struct _lo_server_thread;
+typedef int (*lo_server_thread_init_callback)(struct _lo_server_thread *s,
+                                              void *user_data);
+typedef void (*lo_server_thread_cleanup_callback)(struct _lo_server_thread *s,
+                                                  void *user_data);
 typedef struct _lo_server_thread {
     lo_server s;
+#ifdef HAVE_LIBPTHREAD
     pthread_t thread;
+#else
+#ifdef HAVE_WIN32_THREADS
+    HANDLE thread;
+#endif
+#endif
     volatile int active;
     volatile int done;
+    lo_server_thread_init_callback cb_init;
+    lo_server_thread_cleanup_callback cb_cleanup;
+    void *user_data;
 } *lo_server_thread;
 #else
 typedef void *lo_server_thread;
@@ -183,14 +210,14 @@ typedef void *lo_server_thread;
 typedef struct _lo_bundle *lo_bundle;
 
 typedef struct _lo_element {
-	lo_element_type type;
-	union {
-		lo_bundle bundle;
-		struct {
-			lo_message msg;
-			const char *path;
-		} message;
-	} content;
+    lo_element_type type;
+    union {
+        lo_bundle bundle;
+        struct {
+            lo_message msg;
+            const char *path;
+        } message;
+    } content;
 } lo_element;
 
 struct _lo_bundle {

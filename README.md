@@ -1,4 +1,5 @@
 
+
 liblo
 =====
 
@@ -31,10 +32,19 @@ you should install liblo with
 
 so that the liblo library can be located by your application.
 
-To build with MS Visual Studio on Windows, first download and run the
-`premake4.exe` application in the build directory with an argument
-describing which IDE you are using.  This will generate project and
-solution files.  See `build/README.md` for more details.
+To build with MS Visual Studio on Windows, please use CMake as
+described next.  See `build/README.md` for more details.
+
+Building with CMake
+-------------------
+
+If you prefer the CMake build system, support has been added.  Instead
+of the `configure` step listed in the previous section, create a build
+directory and initialize CMake:
+
+    mkdir ~/build/liblo
+    cmake ~/source/liblo/cmake <more options..>
+    make
 
 Examples
 --------

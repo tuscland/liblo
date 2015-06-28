@@ -29,14 +29,23 @@
 #include <config.h>
 #include <lo/lo.h>
 
+int done = 0;
+int bundled = 0;
+lo_timetag tt_now;
+lo_timetag tt_bundle;
+FILE *fout = NULL;
+int dump_raw = 0;
+
 void usage(void)
 {
     printf("oscdump version %s\n"
            "Copyright (C) 2008 Kentaro Fukuchi\n\n"
-           "Usage: oscdump <port>\n"
-           "or     oscdump <url>\n"
+           "Usage: oscdump [-L] [-r] <port>\n"
+           "or     oscdump [-L] [-r] <url>\n"
            "Receive OpenSound Control messages and dump to standard output.\n\n"
            "Description\n"
+           "-L      : specifies line buffering even if stdout is a pipe or file\n"
+           "-r      : specifies to dump raw message data to stdout (binary)\n"
            "port    : specifies the listening port number.\n"
            "url     : specifies the server parameters using a liblo URL.\n"
            "          e.g. UDP        \"osc.udp://:9000\"\n"
@@ -44,9 +53,32 @@ void usage(void)
            "               TCP        \"osc.tcp://:9000\"\n\n", VERSION);
 }
 
+int bundleStartHandler(lo_timetag tt, void *user_data)
+{
+    if (tt.sec == LO_TT_IMMEDIATE.sec &&
+        tt.frac == LO_TT_IMMEDIATE.frac)
+    {
+        lo_timetag_now(&tt_now);
+        tt_bundle.sec = tt_now.sec;
+        tt_bundle.frac = tt_now.frac;
+    }
+    else {
+        tt_bundle.sec = tt.sec;
+        tt_bundle.frac = tt.frac;
+    }
+    bundled = 1;
+    return 0;
+}
+
+int bundleEndHandler(void *user_data)
+{
+    bundled = 0;
+    return 0;
+}
+
 void errorHandler(int num, const char *msg, const char *where)
 {
-    printf("liblo server error %d in path %s: %s\n", num, where, msg);
+    fprintf(stderr, "liblo server error %d in path %s: %s\n", num, where, msg);
 }
 
 int messageHandler(const char *path, const char *types, lo_arg ** argv,
@@ -54,7 +86,20 @@ int messageHandler(const char *path, const char *types, lo_arg ** argv,
 {
     int i;
 
-    printf("%s %s", path, types);
+    if (bundled) {
+        printf("%08x.%08x %s %s", tt_bundle.sec, tt_bundle.frac, path, types);
+    }
+    else {
+        lo_timetag tt = lo_message_get_timestamp(msg);
+        if (tt.sec == LO_TT_IMMEDIATE.sec &&
+            tt.frac == LO_TT_IMMEDIATE.frac)
+        {
+            lo_timetag_now(&tt_now);
+            printf("%08x.%08x %s %s", tt_now.sec, tt_now.frac, path, types);
+        }
+        else
+            printf("%08x.%08x %s %s", tt.sec, tt.frac, path, types);
+    }
 
     for (i = 0; i < argc; i++) {
         printf(" ");
@@ -65,20 +110,73 @@ int messageHandler(const char *path, const char *types, lo_arg ** argv,
     return 0;
 }
 
+int rawMessageHandler(const char *path, const char *types, lo_arg ** argv,
+                   int argc, lo_message msg, void *user_data)
+{
+   size_t size;
+   void *msg_ptr;
+
+   if(!fout){return 1;}
+
+   msg_ptr=lo_message_serialise(msg, path, NULL, &size);
+   if(!msg_ptr){return 1;}
+
+   fwrite(msg_ptr, 1, size, fout);
+   fflush(fout);
+   free(msg_ptr);
+
+   return 0;
+}
+
+void ctrlc(int sig)
+{
+    done = 1;
+}
+
 int main(int argc, char **argv)
 {
     lo_server server;
     char *port=0, *group=0;
+    int i=1;
 
-    if (argc > 1) {
-        port = argv[1];
+#ifdef WIN32
+#ifdef HAVE_SETVBUF
+    setvbuf(stdout, 0, _IONBF, BUFSIZ);
+#endif
+#endif
+
+    if (argc > i && argv[i][0]=='-') {
+#ifdef HAVE_SETVBUF
+        if (argv[i][1]=='L') { // line buffering
+            setvbuf(stdout, 0, _IOLBF, BUFSIZ);
+            i++;
+        }
+        else
+#endif
+        if (argv[i][1]=='h') {
+            usage();
+            exit(0);
+        }
+        else if (argv[i][1]=='r') {
+            dump_raw = 1;
+            i++;
+        }
+        else {
+            fprintf(stderr, "Unknown option `%s'\n", argv[i]);
+            exit(1);
+        }
+    }
+
+    if (argc > i) {
+        port = argv[i];
+        i++;
     } else {
         usage();
         exit(1);
     }
 
-    if (argc > 2) {
-        group = argv[2];
+    if (argc > i) {
+        group = argv[i];
     }
 
     if (group) {
@@ -90,19 +188,30 @@ int main(int argc, char **argv)
     }
 
     if (server == NULL) {
-        printf("Could not start a server with port %s", port);
+        fprintf(stderr, "Could not start a server with port %s", port);
         if (group)
-            printf(", multicast group %s\n", group);
+            fprintf(stderr, ", multicast group %s\n", group);
         else
-            printf("\n");
+            fprintf(stderr, "\n");
         exit(1);
     }
 
-    lo_server_add_method(server, NULL, NULL, messageHandler, NULL);
+    if(!dump_raw)
+    {
+        lo_server_add_method(server, NULL, NULL, messageHandler, NULL);
+    }
+    else
+    {
+        fout = stdout;
+        lo_server_add_method(server, NULL, NULL, rawMessageHandler, NULL);
+    }
+    lo_server_add_bundle_handlers(server, bundleStartHandler, bundleEndHandler,
+                                  NULL);
 
+    signal(SIGINT, ctrlc);
 
-    for (;;) {
-        lo_server_recv(server);
+    while (!done) {
+        lo_server_recv_noblock(server, 1);
     }
 
     return 0;

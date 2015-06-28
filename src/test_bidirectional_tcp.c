@@ -1,8 +1,18 @@
+#ifdef WIN32
+#include <process.h>
+#endif
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#ifdef HAVE_LIBPTHREAD
+#include <pthread.h>
+#endif
 
 #include <stdio.h>
-#include <lo/lo.h>
-#include <pthread.h>
 #include <stdlib.h>
+#include <lo/lo.h>
 
 int generic_handler(const char *path, const char *types, lo_arg ** argv,
                     int argc, lo_message data, void *user_data)
@@ -26,7 +36,11 @@ int generic_handler(const char *path, const char *types, lo_arg ** argv,
     return 0;
 }
 
+#ifdef HAVE_WIN32_THREADS
+unsigned __attribute__((stdcall)) sendthread(void *arg)
+#else
 void *sendthread(void *arg)
+#endif
 {
     lo_server s = lo_server_new_with_proto("7772", LO_TCP, 0);
     if (!s) { printf("no server2\n"); exit(1); }
@@ -64,8 +78,12 @@ int main()
 
     printf("%p.server fd: %d\n", s, lo_server_get_socket_fd(s));
 
+#ifdef HAVE_WIN32_THREADS
+    HANDLE thr = (HANDLE)_beginthreadex(NULL, 0, &sendthread, s, 0, NULL);
+#else
     pthread_t thr;
     pthread_create(&thr, 0, sendthread, s);
+#endif
 
     printf("%p.receiving1..\n", s);
     lo_server_recv(s);
@@ -75,7 +93,12 @@ int main()
     lo_server_recv(s);
     printf("%p.done receiving2\n", s);
 
+#ifdef HAVE_WIN32_THREADS
+    WaitForSingleObject(thr, INFINITE);
+    CloseHandle(thr);
+#else
     pthread_join(thr, 0);
+#endif
 
     printf("%p.freeing\n", s);
     lo_server_free(s);

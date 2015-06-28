@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public License
@@ -22,18 +22,7 @@
  * constants.
  */
 
-#ifdef _MSC_VER
-#ifndef UINTSDEFINED
-#define UINTSDEFINED
-#define int32_t __int32
-#define int64_t __int64
-#define uint32_t unsigned __int32
-#define uint64_t unsigned __int64
-#define uint8_t unsigned __int8
-#endif
-#else
 #include <stdint.h>
-#endif
 
 /**
  * \addtogroup liblo
@@ -140,6 +129,11 @@ typedef union {
     uint8_t    m[4];
 	/** OSC TimeTag value. */
     lo_timetag t;
+    /** Blob **/
+    struct {
+        int32_t size;
+        char data;
+    } blob;
 } lo_arg;
 
 /* Note: No struct literals in MSVC */
@@ -149,14 +143,8 @@ typedef union {
 #endif
 #endif
 
-#ifdef DLL_EXPORT
-#ifndef USE_ANSI_C
-#define USE_ANSI_C
-#endif
-#endif
-
 /** \brief A timetag constant representing "now". */
-#ifdef USE_ANSI_C
+#if defined(USE_ANSI_C) || defined(DLL_EXPORT)
 lo_timetag lo_get_tt_immediate();
 #define LO_TT_IMMEDIATE lo_get_tt_immediate()
 #else // !USE_ANSI_C

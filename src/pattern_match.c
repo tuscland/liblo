@@ -1,3 +1,21 @@
+/*
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU Lesser General Public License as
+ *  published by the Free Software Foundation; either version 2.1 of the
+ *  License, or (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU Lesser General Public License for more details.
+ *
+ *  $Id$
+ */
+
+/* This code was originally forked from: */
+
 /* Open SoundControl kit in C++                                              */
 /* Copyright (C) 2002-2004 libOSC++ contributors. See AUTHORS                */
 /*                                                                           */
@@ -71,7 +89,7 @@
  * Initial revision
  */
 
-#include "lo/lo.h"
+#include <string.h>
 
 #ifndef NEGATE
 #define NEGATE  '!'
@@ -145,7 +163,8 @@ int lo_pattern_match(const char *str, const char *p)
                             (*str > c && *str < *p))
                             match = true;
                     } else {    /* c-] */
-                        if (*str >= c)
+                        // spec 1.0: "no special meaning" so it should match '-'
+                        if (*str == '-')
                             match = true;
                         break;
                     }
@@ -196,9 +215,6 @@ int lo_pattern_match(const char *str, const char *p)
                             // backtrack on test string
                             str = place;
                             // continue testing,
-                            // skip comma
-                            if (!*p++)  // oops
-                                return false;
                         }
                     } else if (c == '}') {
                         // continue normal pattern matching
@@ -232,6 +248,22 @@ int lo_pattern_match(const char *str, const char *p)
                c = *p++;
              */
 
+        case '/':
+            if (*p == '/') {
+                // spec 1.1 '//' xpath-insired pattern, find first
+                // matching subpath
+                while (*p && *str) {
+                    if (lo_pattern_match(str, p))
+                        return true;
+                    else {
+                        while (*++str && *str != '/')
+                            ;
+                        if (!*str)
+                            return false;
+                    }
+                }
+            }
+
         default:
             if (c != *str)
                 return false;
@@ -242,4 +274,10 @@ int lo_pattern_match(const char *str, const char *p)
     }
 
     return !*str;
+}
+
+int lo_string_contains_pattern(const char *str)
+{
+    if (!str) return 0;
+    return strpbrk(str, " #*,?[]{}") != NULL;
 }

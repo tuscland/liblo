@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 (See AUTHORS file)
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public License
@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 /**
- * \file lo.h The liblo main headerfile and high-level API functions.
+ * \file lo_serverthread.h The liblo headerfile declaring thread-related functions.
  */
 
 
@@ -64,6 +64,28 @@ lo_server_thread lo_server_thread_new_multicast(const char *group, const char *p
                                                 lo_err_handler err_h);
 
 /**
+ * \brief Create a new server thread instance, and join a UDP
+ * multicast group, optionally specifying which network interface to
+ * use.  Note that usually only one of iface or ip are specified.
+ * 
+ * \param group The multicast group to join.  See documentation on IP
+ * multicast for the acceptable address range; e.g., http://tldp.org/HOWTO/Multicast-HOWTO-2.html
+ * \param port If using UDP then NULL may be passed to find an unused port.
+ * Otherwise a decimal port number or service name or may be passed.
+ * If using UNIX domain sockets then a socket path should be passed here.
+ * \param iface A string specifying the name of a network interface to
+ * use, or zero if not specified.
+ * \param ip A string specifying the IP address of a network interface
+ * to use, or zero if not specified.
+ * \param err_h An error callback function that will be called if there is an
+ * error in messge reception or server creation. Pass NULL if you do not want
+ * error handling.
+ */
+lo_server_thread lo_server_thread_new_multicast_iface(const char *group, const char *port,
+						      const char *iface, const char *ip,
+						      lo_err_handler err_h);
+
+/**
  * \brief Create a new server thread to handle incoming OSC
  * messages, specifying protocol.
  *
@@ -95,6 +117,15 @@ lo_server_thread lo_server_thread_new_with_proto(const char *port, int proto,
 lo_server_thread lo_server_thread_new_from_url(const char *url,
                                                lo_err_handler err_h);
 
+
+/**
+ * \brief Create a new server thread, using a configuration struct.
+ *
+ * \param config A pre-initialized config struct.  A pointer to it will not be kept.
+ * \return A new lo_server_thread instance.
+ */
+lo_server_thread lo_server_thread_new_from_config(lo_server_config *config);
+
 /**
  * \brief Free memory taken by a server thread
  *
@@ -118,7 +149,8 @@ void lo_server_thread_free(lo_server_thread st);
  */
 lo_method lo_server_thread_add_method(lo_server_thread st, const char *path,
                                const char *typespec, lo_method_handler h,
-                               void *user_data);
+                               const void *user_data);
+
 /**
  * \brief Delete an OSC method from the specifed server thread.
  *
@@ -129,6 +161,33 @@ lo_method lo_server_thread_add_method(lo_server_thread st, const char *path,
  */
 void lo_server_thread_del_method(lo_server_thread st, const char *path,
 				 const char *typespec);
+
+/**
+ * \brief Delete an OSC method from the specified server thread.
+ *
+ * \param st The server thread the method is to be removed from.
+ * \param m The lo_method identifier returned from lo_server_add_method for
+ *          the method to delete from the server.
+ * \return Non-zero if it was not found in the list of methods for the server.
+ */
+int lo_server_thread_del_lo_method(lo_server_thread st, lo_method m);
+
+/**
+ * \brief Set an init and/or a cleanup function to the specifed server thread.
+ *
+ * To have any effect, it must be called before the server thread is started.
+ *
+ * \param st The server thread to which the method is to be added.
+ * \param init The init function to be called just after thread start.
+ *             May be NULL.
+ * \param cleanup The cleanup function to be called just before thread
+ *                exit.  May be NULL.
+ * \param user_data A value that will be passed to the callback functions.
+ */
+void lo_server_thread_set_callbacks(lo_server_thread st,
+                                    lo_server_thread_init_callback init,
+                                    lo_server_thread_cleanup_callback cleanup,
+                                    void *user_data);
 
 /**
  * \brief Start the server thread

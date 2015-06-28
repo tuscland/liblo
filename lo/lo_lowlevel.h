@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004 Steve Harris
+ *  Copyright (C) 2014 Steve Harris et al. (see AUTHORS)
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public License
@@ -31,11 +31,11 @@ extern "C" {
 #include <stdarg.h>
 #include <sys/types.h>
 #ifdef _MSC_VER
-#define ssize_t SSIZE_T
-#define uint32_t unsigned __int32
-#else
-#include <stdint.h>
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
 #endif
+#include <stdint.h>
+
 
 #include "lo/lo_types.h"
 #include "lo/lo_errors.h"
@@ -56,7 +56,37 @@ extern "C" {
 typedef long double lo_hires;
 
 
+/**
+ * \brief A configuration struct for initializing \ref lo_server using lo_server_new_from_config().
+ *
+ * User code is responsible for allocating and deallocating memory
+ * pointed to by this struct, including strings for group, port,
+ * iface, ip, etc.  The struct and relevant fields will be copied by
+ * liblo when necessary, therefore it can be deallocated after use.
+ * The size field should be set to sizeof(lo_server_config).  Fields
+ * set to 0 shall be ignored.
+ */
+typedef struct {
+    size_t size;
+    const char *group;
+    const char *port;
+    const char *iface;
+    const char *ip;
+    int proto;
+    lo_err_handler err_handler;
+    void *err_handler_context;
+} lo_server_config;
 
+/**
+ * \brief Used with \ref lo_address_set_stream_slip() to specify whether sent
+ *        messages should be encoded with SLIP, and whether the encoding should
+ *        be single- or double-ENDed.
+ */
+typedef enum {
+	LO_SLIP_NONE   = 0,
+	LO_SLIP_SINGLE = 1,
+	LO_SLIP_DOUBLE = 2
+} lo_slip_encoding;
 
 /**
  * \brief Send a lo_message object to target targ
@@ -107,7 +137,7 @@ int lo_send_bundle_from(lo_address targ, lo_server serv, lo_bundle b);
 /**
  * \brief Create a new lo_message object
  */
-lo_message lo_message_new();
+lo_message lo_message_new(void);
 
 /**
  * \brief  Add one to a message's reference count.
@@ -290,9 +320,12 @@ int lo_message_add_nil(lo_message m);
 int lo_message_add_infinitum(lo_message m);
 
 /**
- * \brief  Returns the source (lo_address) of an incoming message.
+ * \brief  Returns the source (\ref lo_address) of an incoming message.
  *
- * Returns NULL if the message is outgoing. Do not free the returned address.
+ * Returns NULL if the message is outgoing. Do not free the returned
+ * address. This is usually called on the \ref lo_message passed to
+ * \ref lo_method_handler, to set up bidirectional communication.  See
+ * \ref example_tcp_echo_server.c for an example of this.
  */
 lo_address lo_message_get_source(lo_message m);
 
@@ -474,10 +507,10 @@ int lo_address_set_tcp_nodelay(lo_address t, int enable);
  * \brief Set outgoing stream connections (e.g., TCP) to be
  *        transmitted using the SLIP packetizing protocol.
  * \param t The address to set this flag for.
- * \param enable Non-zero to set the flag, zero to unset it.
+ * \param encoding Specify single- or double-ENDed SLIP, or disable SLIP.
  * \return the previous value of this flag.
  */
-int lo_address_set_stream_slip(lo_address t, int enable);
+int lo_address_set_stream_slip(lo_address t, lo_slip_encoding encoding);
 
 /**
  * \brief  Create a new bundle object.
@@ -739,6 +772,14 @@ lo_server lo_server_new_from_url(const char *url,
                                  lo_err_handler err_h);
 
 /**
+ * \brief Create a new server instance, using a configuration struct.
+ *
+ * \param config A pre-initialized config struct.  A pointer to it will not be kept.
+ * \return A new lo_server instance.
+ */
+lo_server lo_server_new_from_config(lo_server_config *config);
+
+/**
  * \brief Enables or disables type coercion during message dispatch.
  * \param server The server to toggle this option for.
  * \param enable Non-zero to enable, or zero to disable type coercion.
@@ -765,6 +806,21 @@ void lo_server_free(lo_server s);
 int lo_server_wait(lo_server s, int timeout);
 
 /**
+ * \brief Wait on multiple servers for an OSC message to be received
+ *
+ * \param s An array of servers to wait for connections on.
+ * \param status An array to receive the status of each server.
+ * \param num_servers The number of servers in the array s.
+ * \param timeout A timeout in milliseconds to wait for the incoming packet.
+ * a value of 0 will return immediately.
+ *
+ * The return value is the number of servers with a message waiting or
+ * 0 if there is no message. If there is a message waiting you can now
+ * call lo_server_recv() to receive that message.
+ */
+int lo_servers_wait(lo_server *s, int *status, int num_servers, int timeout);
+
+/**
  * \brief Look for an OSC message waiting to be received
  *
  * \param s The server to wait for connections on.
@@ -776,6 +832,22 @@ int lo_server_wait(lo_server s, int timeout);
  * if one is found.
  */
 int lo_server_recv_noblock(lo_server s, int timeout);
+
+/**
+ * \brief Look for an OSC message waiting to be received on multiple servers
+ *
+ * \param s As array of servers to wait for connections on.
+ * \param recvd An array to store the number of bytes received by each server
+ * in array s.
+ * \param num_servers The number of servers in the array s.
+ * \param timeout A timeout in milliseconds to wait for the incoming packet.
+ * a value of 0 will return immediately.
+ *
+ * The return value is the total number of bytes received by all servers.
+ * The messages will be dispatched to a matching method if one is found.
+ */
+int lo_servers_recv_noblock(lo_server *s, int *recvd, int num_servers,
+                            int timeout);
 
 /**
  * \brief Block, waiting for an OSC message to be received
@@ -798,13 +870,14 @@ int lo_server_recv(lo_server s);
  * matching message is received
  * \param user_data A value that will be passed to the callback function, h,
  * when its invoked matching from this method.
+ * \return A unique pointer identifying the method.  It should not be freed.
  */
 lo_method lo_server_add_method(lo_server s, const char *path,
                                const char *typespec, lo_method_handler h,
-                               void *user_data);
+                               const void *user_data);
 
 /**
- * \brief Delete an OSC method from the specifed server.
+ * \brief Delete an OSC method from the specified server.
  *
  * \param s The server the method is to be removed from.
  * \param path The OSC path of the method to delete. If NULL is passed the
@@ -813,6 +886,16 @@ lo_method lo_server_add_method(lo_server s, const char *path,
  */
 void lo_server_del_method(lo_server s, const char *path,
                                const char *typespec);
+
+/**
+ * \brief Delete a specific OSC method from the specified server.
+ *
+ * \param s The server the method is to be removed from.
+ * \param m The lo_method identifier returned from lo_server_add_method for
+ *          the method to delete from the server.
+ * \return Non-zero if it was not found in the list of methods for the server.
+ */
+int lo_server_del_lo_method(lo_server s, lo_method m);
 
 /**
  * \brief Add bundle notification handlers to the specified server.
@@ -899,6 +982,26 @@ int lo_server_events_pending(lo_server s);
  */
 double lo_server_next_event_delay(lo_server s);
 
+/** 
+ * \brief Set the maximum message size accepted by a server.
+ *
+ * For UDP servers, the maximum message size cannot exceed 64k, due to
+ * the UDP transport specifications.  For TCP servers, this number may
+ * be larger, but be aware that one or more contiguous blocks of
+ * memory of this size may be allocated by liblo.  (At least one per
+ * connection.)
+ *
+ * \param s The server on which to operate.
+ * \param req_size The new maximum message size to request, 0 if it
+ * should not be modified, or -1 if it should be set to unlimited.
+ * Note that an unlimited message buffer may make your application
+ * open to a denial of service attack.
+ * \return The new maximum message size is returned, which may or may
+ * not be equal to req_size.  If -1 is returned, maximum size is
+ * unlimited.
+ */
+int lo_server_max_msg_size(lo_server s, int req_size);
+
 /**
  * \brief Return the protocol portion of an OSC URL, eg. udp, tcp.
  *
@@ -966,8 +1069,17 @@ uint32_t lo_blobsize(lo_blob b);
  *
  * \param str The string to test
  * \param p   The pattern to test against
+ * \return 1 if true, 0 otherwise.
  */
 int lo_pattern_match(const char *str, const char *p);
+
+/**
+ * \brief Test if a string contains any OSC pattern characters
+ *
+ * \param str The string to test
+ * \return 1 if true, 0 otherwise.
+ */
+int lo_string_contains_pattern(const char *str);
 
 /** \internal \brief the real send function (don't call directly) */
 int lo_send_internal(lo_address t, const char *file, const int line,

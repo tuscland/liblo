@@ -39,6 +39,14 @@ void init(lo::Server &s)
 {
     int j = 234;
 
+    std::cout << "liblo version: " << lo::version() << std::endl;
+
+    lo_timetag now = lo::now();
+    std::cout << "now: " << now.sec << "," << now.frac << std::endl;
+
+    lo_timetag imm = lo::immediate();
+    std::cout << "immediate: " << imm.sec << "," << imm.frac << std::endl;
+
     std::cout << "URL: " << s.url() << std::endl;
 
     class test3
@@ -116,7 +124,7 @@ void init(lo::Server &s)
 
     j*=2;
     s.add_method("test12", "i", [j](const lo::Message m)
-                 {printf("test12 source: %s\n", m.source().url().c_str());});
+                 {printf("test12 (j=%d) source: %s\n", j, m.source().url().c_str());});
 
     s.add_method(0, 0, [](const char *path, lo_message m){printf("generic: %s ", path); lo_message_pp(m);});
 
@@ -132,10 +140,17 @@ int main()
     lo::ServerThread st(9000,
                         [=](int num, const char *msg, const char *where)
                         {printf("error handler: %d\n", context);});
+    context=888;
     if (!st.is_valid()) {
         printf("Nope.\n");
         return 1;
     }
+
+    st.set_callbacks([&st](){printf("Thread init: %p.\n",&st); return 0;},
+                     [](){printf("Thread cleanup.\n");});
+
+    st.set_callbacks([](){printf("Thread init.\n");},
+                     [](){printf("Thread cleanup.\n");});
 
     std::cout << "URL: " << st.url() << std::endl;
 
@@ -146,10 +161,12 @@ int main()
     lo::Address a("localhost", "9000");
 
     printf("address host %s, port %s\n", a.hostname().c_str(), a.port().c_str());
+#ifdef HAVE_GETIFADDRS
     printf("iface: %s\n", a.iface().c_str());
     a.set_iface(std::string(), std::string("127.0.0.1"));
     a.set_iface(0, "127.0.0.1");
     printf("iface: %s\n", a.iface().c_str());
+#endif
 
     a.send_from(st, "test1", "i", 20);
     a.send("test2", "i", 40);
@@ -160,7 +177,7 @@ int main()
     a.send("test7", "i", 140);
     a.send("test8", "i", 160);
     a.send("test9", "i", 180);
-    a.send("test10", "i", 200);
+    a.send("test10", std::string("i"), 200);
 
     lo::Message m;
     m.add("i", 220);
@@ -204,7 +221,7 @@ int main()
     }
     else {
         printf("Unexpected failure in deserialise(): %d\n", m2.first);
-        exit(1);
+        return 1;
     }
 
     // Memory for lo_message not copied
@@ -213,11 +230,34 @@ int main()
     // Memory for lo_message is copied
     lo::Message m4 = m2.second.clone();
 
+    // Test exceptions
+    {
+#ifdef LO_USE_EXCEPTIONS
+        printf("Testing exceptions.\n");
+        try {
+#endif
+            lo::ServerThread st2(9000);
+            if (st2.is_valid()) {
+                printf("st2 unexpectedly valid on port 9000.\n");
+                return 1;
+            }
+#ifdef LO_USE_EXCEPTIONS
+            printf("Exception not thrown when expected!\n");
+            return 1;
+        } catch(lo::Invalid e) {
+            printf("Invalid! (unexpected)\n");
+            return 1;
+        } catch(lo::Error e) {
+            printf("Expected error opening st2 on port 9000.\n");
+        }
+#endif
+    }
+
 #ifdef WIN32
     Sleep(1000);
 #else
     sleep(1);
 #endif
-    printf("%s: %d\n", a.errstr().c_str(), a.get_errno());
+    printf("%s (errno=%d)\n", a.errstr().c_str(), a.get_errno());
     return a.get_errno();
 }
